@@ -8,7 +8,10 @@ dotenv.config();
 const app = express();
 
 // Middleware
-app.use(cors());
+app.use(cors({
+    origin: ['http://localhost:3000', 'http://localhost:5000'],
+    credentials: true
+}));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
@@ -43,6 +46,7 @@ app.get('/api/db-test', async (req, res) => {
 const fs = require('fs');
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) {
+    console.log('📁 Creating uploads directory...');
     fs.mkdirSync(uploadsDir, { recursive: true });
 }
 const authRoutes = require('./src/routes/authRoutes');

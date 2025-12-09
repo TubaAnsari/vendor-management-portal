@@ -51,8 +51,10 @@ class Vendor {
         query += ' ORDER BY average_rating DESC NULLS LAST';
     } else if (filters.sort === 'newest') {
         query += ' ORDER BY created_at DESC';
-    } else {
+    } else if (filters.sort === 'name') {
         query += ' ORDER BY vendor_name ASC';
+    } else {
+        query += ' ORDER BY created_at DESC'; // Default to newest
     }
 
     console.log('Vendor query:', query, values); // Add this for debugging
