@@ -1,36 +1,37 @@
 const { Pool } = require('pg');
 require('dotenv').config();
 
+// Log connection details (except password)
 console.log('📊 PostgreSQL Connection Details:');
 console.log('  Host:', process.env.DB_HOST || 'Not set');
 console.log('  Port:', process.env.DB_PORT || 'Not set');
 console.log('  Database:', process.env.DB_NAME || 'Not set');
 console.log('  User:', process.env.DB_USER || 'Not set');
-console.log('  Password:', process.env.DB_PASSWORD ? '*** (set)' : 'NOT SET!');
+console.log('  Environment:', process.env.NODE_ENV || 'development');
 
 const pool = new Pool({
-    host: process.env.DB_HOST || 'localhost',
+    host: process.env.DB_HOST,
     port: process.env.DB_PORT || 5432,
-    database: process.env.DB_NAME || 'vendor_portal',
-    user: process.env.DB_USER || 'postgres',
+    database: process.env.DB_NAME,
+    user: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
+    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
     max: 20,
     idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 2000,
+    connectionTimeoutMillis: 5000,
 });
 
-// Test connection immediately
+// Test connection
 pool.query('SELECT NOW()', (err, res) => {
     if (err) {
         console.error('❌ Database connection failed:', err.message);
-        console.error('Error details:', err);
     } else {
-        console.log('✅ Database connected successfully at:', res.rows[0].now);
+        console.log('✅ Database connected successfully');
     }
 });
 
 pool.on('connect', () => {
-    console.log('🟢 New client connected to PostgreSQL');
+    console.log('🟢 New PostgreSQL connection established');
 });
 
 pool.on('error', (err) => {
@@ -39,5 +40,5 @@ pool.on('error', (err) => {
 
 module.exports = {
     query: (text, params) => pool.query(text, params),
-    pool: pool  // Make sure pool is exported
+    pool: pool
 };
