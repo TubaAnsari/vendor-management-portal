@@ -1,14 +1,24 @@
 import axios from 'axios';
 
-const API_URL = process.env.NODE_ENV === 'production' 
-    ? 'https://your-render-app.onrender.com'
-    : 'http://localhost:5000/api';
+const API_URL = import.meta.env.VITE_API_URL;
+
+if (!API_URL) {
+  console.error('❌ VITE_API_URL is not set in environment variables!');
+  console.log('Current env:', import.meta.env);
+}
+
+console.log('API Base URL:', API_URL);
+
+// Determine if we're in production
+const isProduction = import.meta.env.PROD || window.location.hostname !== 'localhost';
 
 const api = axios.create({
-    baseURL: API_URL,
-    headers: {
-        'Content-Type': 'application/json',
-    },
+  baseURL: API_URL,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+  timeout: isProduction ? 30000 : 10000,
+  withCredentials: true, // Important for CORS with credentials
 });
 
 api.interceptors.request.use(
