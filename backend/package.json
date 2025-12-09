@@ -9,9 +9,6 @@
     "build": "echo 'No build required for Node.js'",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": ["vendor", "management", "portal", "api"],
-  "author": "Tuba Ansari",
-  "license": "MIT",
   "engines": {
     "node": ">=16.0.0"
   },

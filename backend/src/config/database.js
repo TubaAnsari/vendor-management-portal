@@ -1,25 +1,42 @@
 const { Pool } = require('pg');
 require('dotenv').config();
 
-// Log connection details (except password)
-console.log('📊 PostgreSQL Connection Details:');
-console.log('  Host:', process.env.DB_HOST || 'Not set');
-console.log('  Port:', process.env.DB_PORT || 'Not set');
-console.log('  Database:', process.env.DB_NAME || 'Not set');
-console.log('  User:', process.env.DB_USER || 'Not set');
-console.log('  Environment:', process.env.NODE_ENV || 'development');
+// Render provides DATABASE_URL in production
+const isProduction = process.env.NODE_ENV === 'production';
 
-const pool = new Pool({
-    host: process.env.DB_HOST,
-    port: process.env.DB_PORT || 5432,
-    database: process.env.DB_NAME,
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-    max: 20,
-    idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 5000,
-});
+// Log connection details
+console.log('📊 PostgreSQL Connection Details:');
+console.log('  Environment:', process.env.NODE_ENV || 'development');
+console.log('  Using DATABASE_URL:', !!process.env.DATABASE_URL);
+
+let poolConfig;
+
+if (isProduction && process.env.DATABASE_URL) {
+    // Use Render's PostgreSQL connection string
+    poolConfig = {
+        connectionString: process.env.DATABASE_URL,
+        ssl: {
+            rejectUnauthorized: false
+        },
+        max: 10,
+        idleTimeoutMillis: 30000,
+        connectionTimeoutMillis: 5000,
+    };
+} else {
+    // Local development
+    poolConfig = {
+        host: process.env.DB_HOST || 'localhost',
+        port: process.env.DB_PORT || 5432,
+        database: process.env.DB_NAME || 'vendor_portal',
+        user: process.env.DB_USER || 'postgres',
+        password: process.env.DB_PASSWORD,
+        max: 20,
+        idleTimeoutMillis: 30000,
+        connectionTimeoutMillis: 5000,
+    };
+}
+
+const pool = new Pool(poolConfig);
 
 // Test connection
 pool.query('SELECT NOW()', (err, res) => {
@@ -30,13 +47,8 @@ pool.query('SELECT NOW()', (err, res) => {
     }
 });
 
-pool.on('connect', async () => {
-    try {
-        await pool.query('SELECT 1');
-        console.log('✅ Database connected successfully');
-    } catch (err) {
-        console.error('❌ Database connection failed:', err.message);
-    }
+pool.on('connect', () => {
+    console.log('🟢 New PostgreSQL connection established');
 });
 
 pool.on('error', (err) => {
