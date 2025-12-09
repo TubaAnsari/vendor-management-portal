@@ -7,12 +7,12 @@ export default defineConfig({
     port: 3000,
     proxy: {
       '/api': {
-        target: 'https://vendor-management-portal.onrender.com/', // Your Render URL
+        target: 'https://vendor-management-portal.onrender.com', // Your Render URL
         changeOrigin: true,
         secure: false,
       },
       '/uploads': {
-        target: 'https://vendor-management-portal.onrender.com/',
+        target: 'https://vendor-management-portal.onrender.com',
         changeOrigin: true,
         secure: false,
       }
