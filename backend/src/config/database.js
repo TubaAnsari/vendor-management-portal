@@ -30,8 +30,13 @@ pool.query('SELECT NOW()', (err, res) => {
     }
 });
 
-pool.on('connect', () => {
-    console.log('🟢 New PostgreSQL connection established');
+pool.on('connect', async () => {
+    try {
+        await pool.query('SELECT 1');
+        console.log('✅ Database connected successfully');
+    } catch (err) {
+        console.error('❌ Database connection failed:', err.message);
+    }
 });
 
 pool.on('error', (err) => {

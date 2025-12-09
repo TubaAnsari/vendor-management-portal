@@ -1,7 +1,7 @@
 import axios from 'axios';
 
-const API_URL = import.meta.env.PROD 
-    ? 'https://vendor-management-portal.onrender.com'
+const API_URL = process.env.NODE_ENV === 'production' 
+    ? 'https://your-render-app.onrender.com'
     : 'http://localhost:5000/api';
 
 const api = axios.create({

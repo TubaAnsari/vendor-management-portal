@@ -40,7 +40,11 @@ app.get('/api/db-test', async (req, res) => {
     }
 });
 
-// Import routes (rest of your code)
+const fs = require('fs');
+const uploadsDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+}
 const authRoutes = require('./src/routes/authRoutes');
 const vendorRoutes = require('./src/routes/vendorRoutes');
 const productRoutes = require('./src/routes/productRoutes');
