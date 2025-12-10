@@ -4,9 +4,7 @@ services:
     env: node
     region: singapore
     plan: free
-    buildCommand: |
-      npm install
-      npm run init-db
+    buildCommand: npm install
     startCommand: node server.js
     healthCheckPath: /health
     autoDeploy: true
@@ -21,5 +19,3 @@ services:
         fromDatabase:
           name: vendor_portal
           property: connectionString
-      - key: CORS_ORIGIN
-        value: https://vendor-management-portal.netlify.app,https://vendor-management-portal-frontend.netlify.app

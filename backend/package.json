@@ -8,9 +8,9 @@
     "dev": "nodemon server.js",
     "build": "echo 'No build required for Node.js'",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "render-build": "npm install",
-    "init-db": "node init-db.js",
-    "deploy": "npm run render-build && npm start"
+    "setup-db": "node setup-db.js",
+    "init-db": "node setup-db.js",
+    "deploy": "npm start"
   },
   "engines": {
     "node": ">=16.0.0",
