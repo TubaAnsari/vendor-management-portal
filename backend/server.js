@@ -3,6 +3,13 @@ const cors = require('cors');
 const dotenv = require('dotenv');
 const path = require('path');
 const fs = require('fs');
+// Database initialization
+const { initializeDatabase } = require('./db-init');
+
+// Initialize database on startup
+initializeDatabase().catch(err => {
+  console.error('Failed to initialize database:', err);
+});
 
 dotenv.config();
 

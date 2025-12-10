@@ -9,6 +9,7 @@
     "build": "echo 'No build required for Node.js'",
     "test": "echo \"Error: no test specified\" && exit 1",
     "render-build": "npm install",
+    "init-db": "node init-db.js",
     "deploy": "npm run render-build && npm start"
   },
   "engines": {
