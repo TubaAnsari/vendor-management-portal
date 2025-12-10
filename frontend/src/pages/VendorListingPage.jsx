@@ -58,24 +58,30 @@ const VendorListingPage = () => {
   }, [category, search, sort]);
 
   const fetchVendors = async (cat = category, srch = search, srt = sort) => {
-    try {
-      setLoading(true);
-      const params = {};
-      if (cat) params.category = cat;
-      if (srch.trim()) params.search = srch.trim();
-      if (srt) params.sort = srt;
-      
-      console.log('Fetching vendors with params:', params);
-      
-      const response = await vendorAPI.getAll(params);
-      setVendors(response.data || []);
-    } catch (error) {
-      console.error('Failed to fetch vendors:', error);
-      setVendors([]);
-    } finally {
-      setLoading(false);
-    }
-  };
+  try {
+    setLoading(true);
+    const params = {};
+    if (cat) params.category = cat;
+    if (srch.trim()) params.search = srch.trim();
+    if (srt) params.sort = srt;
+    
+    console.log('Fetching vendors with params:', params);
+    
+    const response = await vendorAPI.getAll(params);
+    console.log('Vendors response:', response.data);
+    
+    setVendors(response.data || []);
+  } catch (error) {
+    console.error('Failed to fetch vendors:', error);
+    console.error('Error details:', error.response?.data);
+    setVendors([]);
+    
+    // Show error message
+    toast.error('Failed to load vendors. Please try again.');
+  } finally {
+    setLoading(false);
+  }
+};
 
   const handleSearch = (e) => {
     e.preventDefault();

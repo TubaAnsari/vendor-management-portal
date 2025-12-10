@@ -32,9 +32,6 @@ class Vendor {
     const values = [];
     let paramCount = 1;
 
-    // Always exclude soft-deleted vendors
-    // query += ' AND is_deleted = FALSE';
-
     if (filters.category && filters.category !== '') {
         query += ` AND business_category = $${paramCount}`;
         values.push(filters.category);
@@ -47,17 +44,18 @@ class Vendor {
         paramCount++;
     }
 
+    // Default sorting - most important for home page
     if (filters.sort === 'rating') {
         query += ' ORDER BY average_rating DESC NULLS LAST';
-    } else if (filters.sort === 'newest') {
-        query += ' ORDER BY created_at DESC';
     } else if (filters.sort === 'name') {
         query += ' ORDER BY vendor_name ASC';
     } else {
         query += ' ORDER BY created_at DESC'; // Default to newest
     }
 
-    console.log('Vendor query:', query, values); // Add this for debugging
+    console.log('Executing query:', query);
+    console.log('With values:', values);
+    
     const result = await db.query(query, values);
     return result.rows;
 }

@@ -1,222 +1,122 @@
-const express = require('express');
-const cors = require('cors');
-const dotenv = require('dotenv');
-const path = require('path');
-const fs = require('fs');
+import axios from 'axios';
 
-// Load environment variables
-dotenv.config();
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
-const app = express();
+console.log('API Base URL:', API_URL);
 
-//  CONFIGURATION 
-const PORT = process.env.PORT || 5000;
-const NODE_ENV = process.env.NODE_ENV || 'development';
+// Create axios instance
+const api = axios.create({
+  baseURL: API_URL,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+  timeout: 10000, // 10 second timeout
+});
 
-// Create uploads directory
-const uploadsDir = path.join(__dirname, 'uploads');
-if (!fs.existsSync(uploadsDir)) {
-    console.log('Creating uploads directory...');
-    fs.mkdirSync(uploadsDir, { recursive: true });
-}
+// Add token to requests if it exists
+api.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    
+    // Log request for debugging
+    console.log(`${config.method?.toUpperCase()} ${config.url}`, config.params || '');
+    
+    return config;
+  },
+  (error) => {
+    console.error('Request Error:', error);
+    return Promise.reject(error);
+  }
+);
 
-// CORS Configuration
-const allowedOrigins = [
-    'http://localhost:3000',
-    'http://localhost:5000',
-    'https://vendor-management-portal.netlify.app',
-    'https://vendor-management-portal.onrender.com'
-];
+// Handle responses
+api.interceptors.response.use(
+  (response) => {
+    console.log(`${response.status} ${response.config.url}`);
+    return response;
+  },
+  (error) => {
+    console.error('Response Error:', {
+      url: error.config?.url,
+      status: error.response?.status,
+      message: error.message,
+      data: error.response?.data
+    });
+    
+    if (error.response?.status === 401) {
+      // Token expired or invalid
+      localStorage.removeItem('token');
+      localStorage.removeItem('vendor');
+      window.location.href = '/login';
+    }
+    
+    return Promise.reject(error);
+  }
+);
 
-const corsOptions = {
-    origin: function (origin, callback) {
-        // Allow requests with no origin (like mobile apps or curl requests)
-        if (!origin) return callback(null, true);
-        
-        // Allow all subdomains of Netlify and Render
-        if (origin.match(/\.netlify\.app$/) || origin.match(/\.onrender\.com$/)) {
-            return callback(null, true);
-        }
-        
-        if (allowedOrigins.includes(origin)) {
-            callback(null, true);
-        } else {
-            if (NODE_ENV === 'development') {
-                console.log(`⚠️  CORS blocked origin: ${origin}`);
-            }
-            callback(null, false);
-        }
+// Auth API calls
+export const authAPI = {
+  register: (data) => api.post('/auth/register', data, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
     },
-    credentials: true,
-    optionsSuccessStatus: 200
+  }),
+  login: (data) => api.post('/auth/login', data),
+  getProfile: () => api.get('/auth/profile'),
+  updateProfile: (data) => api.put('/auth/profile', data, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  }),
+  deleteProfile: (data) => api.delete('/auth/profile', { data }),
 };
 
-//  MIDDLEWARE 
-app.use(cors(corsOptions));
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// Vendor API calls
+export const vendorAPI = {
+  getAll: (params = {}) => {
+    console.log('Fetching vendors with params:', params);
+    return api.get('/vendors', { params });
+  },
+  getById: (id) => api.get(`/vendors/${id}`),
+  getProducts: (id) => api.get(`/vendors/${id}/products`),
+};
 
-// Request logging middleware
-app.use((req, res, next) => {
-    if (NODE_ENV === 'development') {
-        console.log(`${new Date().toISOString()} ${req.method} ${req.url}`);
-    }
-    next();
-});
+// Product API calls
+export const productAPI = {
+  create: (data) => api.post('/products', data, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  }),
+  getByVendor: () => api.get('/products'),
+  update: (id, data) => api.put(`/products/${id}`, data, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  }),
+  delete: (id) => api.delete(`/products/${id}`),
+};
 
-//  IMPORT ROUTES 
-try {
-    const authRoutes = require('./src/routes/authRoutes');
-    const vendorRoutes = require('./src/routes/vendorRoutes');
-    const productRoutes = require('./src/routes/productRoutes');
-    const reviewRoutes = require('./src/routes/reviewRoutes');
-    const adminRoutes = require('./src/routes/adminRoutes');
+// Review API calls
+export const reviewAPI = {
+  create: (vendorId, data) => api.post(`/reviews/${vendorId}`, data),
+  getByVendor: (vendorId) => api.get(`/reviews/${vendorId}`),
+};
 
-    console.log('Routes loaded successfully');
+// Admin API calls
+export const adminAPI = {
+  getAllVendors: () => api.get('/admin/vendors'),
+  getVendorDetails: (id) => api.get(`/admin/vendors/${id}`),
+};
 
-    //  MOUNT ROUTES 
-    app.use('/api/auth', authRoutes);
-    app.use('/api/vendors', vendorRoutes);
-    app.use('/api/products', productRoutes);
-    app.use('/api/reviews', reviewRoutes);
-    app.use('/api/admin', adminRoutes);
+// Test endpoints
+export const testAPI = {
+  corsTest: () => api.get('/debug'),
+  dbTest: () => api.get('/db-test'),
+  health: () => api.get('/health'),
+};
 
-} catch (error) {
-    console.error('Failed to load routes:', error.message);
-    process.exit(1);
-}
-
-//  TEST & HEALTH ENDPOINTS 
-app.get('/health', (req, res) => {
-    res.status(200).json({
-        status: 'OK',
-        service: 'vendor-portal-api',
-        environment: NODE_ENV,
-        timestamp: new Date().toISOString(),
-        uptime: process.uptime()
-    });
-});
-
-app.get('/api/cors-test', (req, res) => {
-    res.json({
-        success: true,
-        message: 'CORS is working!',
-        origin: req.headers.origin,
-        allowed_origins: allowedOrigins,
-        timestamp: new Date().toISOString()
-    });
-});
-
-app.get('/api/db-test', async (req, res) => {
-    try {
-        const db = require('./src/config/database');
-        const result = await db.query('SELECT NOW() as time, version() as version');
-        res.json({
-            success: true,
-            message: 'Database connected',
-            data: {
-                time: result.rows[0].time,
-                version: result.rows[0].version.split('\n')[0]
-            },
-            timestamp: new Date().toISOString()
-        });
-    } catch (error) {
-        console.error('Database test error:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Database connection failed',
-            message: error.message,
-            timestamp: new Date().toISOString()
-        });
-    }
-});
-
-//  ROOT ENDPOINT 
-app.get('/', (req, res) => {
-    res.json({
-        message: 'Vendor Management Portal API',
-        version: '1.0.0',
-        environment: NODE_ENV,
-        endpoints: {
-            health: '/health',
-            auth: '/api/auth',
-            vendors: '/api/vendors',
-            products: '/api/products',
-            reviews: '/api/reviews',
-            admin: '/api/admin'
-        },
-        documentation: 'See README.md for API documentation',
-        timestamp: new Date().toISOString()
-    });
-});
-
-//  ERROR HANDLERS 
-// 404 handler
-app.use((req, res) => {
-    res.status(404).json({
-        success: false,
-        error: 'Not Found',
-        message: `Route ${req.originalUrl} not found`,
-        timestamp: new Date().toISOString()
-    });
-});
-
-// Global error handler
-app.use((err, req, res, next) => {
-    console.error('Server Error:', err.message);
-    
-    // Default to 500 if no status code
-    const statusCode = err.status || 500;
-    
-    res.status(statusCode).json({
-        success: false,
-        error: 'Internal Server Error',
-        message: NODE_ENV === 'development' ? err.message : 'Something went wrong',
-        timestamp: new Date().toISOString()
-    });
-});
-
-//  START SERVER 
-const server = app.listen(PORT, () => {
-    console.log(`
-
-    Vendor Portal API Server Started
-    Port: ${PORT}
-    Environment: ${NODE_ENV}
-    Uploads Directory: ${uploadsDir}
-    CORS Allowed Origins: ${allowedOrigins.join(', ')}
-    Health Check: http://localhost:${PORT}/health
-    API Root: http://localhost:${PORT}/
-    Database Test: http://localhost:${PORT}/api/db-test
-    `);
-});
-
-// Graceful shutdown
-process.on('SIGTERM', () => {
-    console.log('SIGTERM signal received: closing HTTP server');
-    server.close(() => {
-        console.log('HTTP server closed');
-        process.exit(0);
-    });
-});
-
-process.on('SIGINT', () => {
-    console.log('SIGINT signal received: closing HTTP server');
-    server.close(() => {
-        console.log('HTTP server closed');
-        process.exit(0);
-    });
-});
-
-// Handle uncaught exceptions
-process.on('uncaughtException', (error) => {
-    console.error('Uncaught Exception:', error);
-    process.exit(1);
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-});
-
-module.exports = app;
+export default api;

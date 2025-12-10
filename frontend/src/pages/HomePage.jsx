@@ -21,36 +21,41 @@ const HomePage = () => {
     }, []);
 
     const fetchCategoryCounts = async () => {
-        try {
-            setLoading(true);
-            setError(null);
-            
-            // Fetch all vendors first
-            const response = await vendorAPI.getAll();
-            const vendors = response.data;
-            
-            // Count vendors per category
-            const counts = {};
-            categories.forEach(cat => {
-                counts[cat.key] = vendors.filter(vendor => 
-                    vendor.business_category === cat.key
-                ).length;
-            });
-            
-            setCategoryCounts(counts);
-        } catch (error) {
-            console.error('Failed to fetch category counts:', error);
-            setError('Failed to load categories');
-            // Set default counts
-            const defaultCounts = {};
-            categories.forEach(cat => {
-                defaultCounts[cat.key] = 0;
-            });
-            setCategoryCounts(defaultCounts);
-        } finally {
-            setLoading(false);
-        }
-    };
+  try {
+    setLoading(true);
+    setError(null);
+    
+    console.log('Fetching vendors for category counts...');
+    
+    const response = await vendorAPI.getAll();
+    console.log('Vendors response:', response);
+    
+    const vendors = response.data || [];
+    
+    // Count vendors per category
+    const counts = {};
+    categories.forEach(cat => {
+      counts[cat.key] = vendors.filter(vendor => 
+        vendor.business_category === cat.key
+      ).length;
+    });
+    
+    setCategoryCounts(counts);
+  } catch (error) {
+    console.error('Failed to fetch category counts:', error);
+    console.error('Error details:', error.response?.data);
+    setError(`Failed to load categories: ${error.message}`);
+    
+    // Set default counts
+    const defaultCounts = {};
+    categories.forEach(cat => {
+      defaultCounts[cat.key] = 0;
+    });
+    setCategoryCounts(defaultCounts);
+  } finally {
+    setLoading(false);
+  }
+};
 
     return (
         <div className="max-w-6xl mx-auto">
