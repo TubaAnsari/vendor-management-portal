@@ -10,6 +10,8 @@ const VendorProfilePage = () => {
   const [vendor, setVendor] = useState(null);
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [logoError, setLogoError] = useState(false);
+  const [productImagesError, setProductImagesError] = useState({});
 
   useEffect(() => {
     fetchVendorDetails();
@@ -21,11 +23,32 @@ const VendorProfilePage = () => {
       const response = await vendorAPI.getById(id);
       setVendor(response.data);
       setProducts(response.data.products || []);
+      setLogoError(false);
+      setProductImagesError({});
     } catch (error) {
       console.error('Failed to fetch vendor details:', error);
     } finally {
       setLoading(false);
     }
+  };
+
+  // Handle logo image error
+  const handleLogoError = () => {
+    setLogoError(true);
+  };
+
+  // Handle product image error
+  const handleProductImageError = (productId) => {
+    setProductImagesError(prev => ({
+      ...prev,
+      [productId]: true
+    }));
+  };
+
+  // Get fallback avatar based on vendor name
+  const getFallbackAvatar = (name) => {
+    if (!name) return 'V';
+    return name.charAt(0).toUpperCase();
   };
 
   if (loading) {
@@ -61,16 +84,21 @@ const VendorProfilePage = () => {
         </div>
         
         <div className="flex flex-col md:flex-row items-start md:items-center">
+          {/* VENDOR LOGO SECTION WITH ERROR HANDLING */}
           <div className="mr-6 mb-4 md:mb-0">
-            {vendor.logo_url ? (
+            {vendor.logo_url && !logoError ? (
               <img
                 src={`http://localhost:5000${vendor.logo_url}`}
                 alt={vendor.vendor_name}
                 className="w-32 h-32 rounded-lg object-cover"
+                onError={handleLogoError}
+                onLoad={() => setLogoError(false)}
               />
             ) : (
-              <div className="w-32 h-32 bg-gray-200 rounded-lg flex items-center justify-center">
-                <FaBuilding className="w-16 h-16 text-gray-500" />
+              <div className="w-32 h-32 rounded-lg flex items-center justify-center vendor-fallback-avatar">
+                <span className="text-4xl font-bold text-white">
+                  {getFallbackAvatar(vendor.vendor_name)}
+                </span>
               </div>
             )}
           </div>
@@ -170,12 +198,22 @@ const VendorProfilePage = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {products.map((product) => (
               <div key={product.id} className="bg-white rounded-lg shadow-sm p-6 hover:shadow-lg transition-shadow">
-                {product.product_image && (
+                {/* PRODUCT IMAGE WITH ERROR HANDLING */}
+                {product.product_image && !productImagesError[product.id] ? (
                   <img
                     src={`http://localhost:5000${product.product_image}`}
                     alt={product.product_name}
                     className="w-full h-48 object-cover rounded-lg mb-4"
+                    onError={() => handleProductImageError(product.id)}
+                    onLoad={() => setProductImagesError(prev => ({
+                      ...prev,
+                      [product.id]: false
+                    }))}
                   />
+                ) : (
+                  <div className="w-full h-48 bg-gray-100 rounded-lg mb-4 flex items-center justify-center product-fallback-image">
+                    <FaBuilding className="w-12 h-12 text-gray-400" />
+                  </div>
                 )}
                 <h3 className="font-bold text-lg mb-2">{product.product_name}</h3>
                 <p className="text-gray-600 text-sm mb-3">{product.short_description}</p>
@@ -189,6 +227,18 @@ const VendorProfilePage = () => {
           </div>
         )}
       </div>
+
+      {/* Add CSS for fallback avatars */}
+      <style jsx>{`
+        .vendor-fallback-avatar {
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          color: white;
+        }
+        
+        .product-fallback-image {
+          background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+        }
+      `}</style>
     </div>
   );
 };
