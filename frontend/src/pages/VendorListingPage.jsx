@@ -1,478 +1,598 @@
 import React, { useState, useEffect } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
-import { FaSearch, FaFilter, FaStar, FaBuilding, FaTimes } from 'react-icons/fa';
-import { vendorAPI } from '../services/api';
-import { DisplayRating } from '../components/RatingStars';
+import { 
+  collection, 
+  getDocs, 
+  addDoc, 
+  deleteDoc, 
+  doc, 
+  updateDoc 
+} from 'firebase/firestore';
+import { db } from '../config/firebase';
+import { toast } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
+import './VendorsList.css';
 
-const VendorListingPage = () => {
+const VendorsList = () => {
   const [vendors, setVendors] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
-  const [category, setCategory] = useState('');
-  const [sort, setSort] = useState('');
-  const [searchParams, setSearchParams] = useSearchParams();
-  
-  // Get categories from vendors (unique business categories)
-  const allCategories = [...new Set(vendors.map(v => v.business_category).filter(Boolean))].sort();
+  const [error, setError] = useState(null);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [editingVendor, setEditingVendor] = useState(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Default categories if none exist yet
-  const defaultCategories = [
-    'Contractor',
-    'Material Supplier',
-    'Consultant',
-    'Fabricator',
-    'Manufacturer',
-    'Service Provider',
-  ];
+  // New vendor form state
+  const [newVendor, setNewVendor] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    address: '',
+    imageUrl: '',
+    category: '',
+    description: '',
+    createdAt: new Date().toISOString()
+  });
 
-  const categories = allCategories.length > 0 ? allCategories : defaultCategories;
-
-  // Fetch vendors when component mounts or filters change
-  useEffect(() => {
-    // Get initial values from URL
-    const urlCategory = searchParams.get('category') || '';
-    const urlSearch = searchParams.get('search') || '';
-    const urlSort = searchParams.get('sort') || '';
-    
-    // Only update state if values are different
-    if (urlCategory !== category) setCategory(urlCategory);
-    if (urlSearch !== search) setSearch(urlSearch);
-    if (urlSort !== sort) setSort(urlSort);
-    
-    // Fetch vendors with current filters
-    fetchVendors(urlCategory, urlSearch, urlSort);
-  }, [searchParams]); // Run when URL params change
-
-  // Update URL when local state changes (but don't fetch - useEffect above handles it)
-  useEffect(() => {
-    const params = new URLSearchParams();
-    if (category) params.set('category', category);
-    if (search) params.set('search', search);
-    if (sort) params.set('sort', sort);
-    
-    // Only update if params have changed
-    const currentParams = new URLSearchParams(searchParams);
-    if (params.toString() !== currentParams.toString()) {
-      setSearchParams(params);
+  // Fetch vendors from Firestore
+  const fetchVendors = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const vendorsCollection = collection(db, 'vendors');
+      const vendorSnapshot = await getDocs(vendorsCollection);
+      const vendorsList = vendorSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        // Ensure imageUrl exists even if undefined
+        imageUrl: doc.data().imageUrl || '',
+        // Ensure all required fields have default values
+        name: doc.data().name || 'Unnamed Vendor',
+        email: doc.data().email || '',
+        phone: doc.data().phone || '',
+        category: doc.data().category || 'General',
+      }));
+      
+      // Validate and sanitize vendor data
+      const validatedVendors = vendorsList.map(vendor => {
+        // Check for invalid image URLs
+        let safeImageUrl = vendor.imageUrl;
+        if (vendor.imageUrl && !isValidImageUrl(vendor.imageUrl)) {
+          safeImageUrl = '';
+          console.warn(`Invalid image URL for vendor ${vendor.id}: ${vendor.imageUrl}`);
+        }
+        
+        return {
+          ...vendor,
+          imageUrl: safeImageUrl,
+          // Add timestamp for sorting if missing
+          createdAt: vendor.createdAt || new Date().toISOString(),
+        };
+      });
+      
+      // Sort by creation date (newest first)
+      validatedVendors.sort((a, b) => 
+        new Date(b.createdAt) - new Date(a.createdAt)
+      );
+      
+      setVendors(validatedVendors);
+    } catch (err) {
+      console.error('Error fetching vendors:', err);
+      setError(`Failed to load vendors: ${err.message}`);
+      toast.error('Failed to load vendors');
+    } finally {
+      setLoading(false);
     }
-  }, [category, search, sort]);
+  };
 
-  const fetchVendors = async (cat = category, srch = search, srt = sort) => {
-  try {
-    setLoading(true);
-    const params = {};
-    if (cat) params.category = cat;
-    if (srch.trim()) params.search = srch.trim();
-    if (srt) params.sort = srt;
+  // Validate image URL
+  const isValidImageUrl = (url) => {
+    if (!url || url.trim() === '') return false;
     
-    console.log('Fetching vendors with params:', params);
-    
-    const response = await vendorAPI.getAll(params);
-    console.log('Vendors response:', response.data);
-    
-    setVendors(response.data || []);
-  } catch (error) {
-    console.error('Failed to fetch vendors:', error);
-    console.error('Error details:', error.response?.data);
-    setVendors([]);
-    
-    // Show error message
-    toast.error('Failed to load vendors. Please try again.');
-  } finally {
-    setLoading(false);
-  }
-};
+    try {
+      const parsedUrl = new URL(url);
+      // Allow common image extensions
+      const validExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg'];
+      const hasValidExtension = validExtensions.some(ext => 
+        parsedUrl.pathname.toLowerCase().endsWith(ext)
+      );
+      
+      return hasValidExtension || 
+             url.startsWith('data:image/') || 
+             url.startsWith('blob:') ||
+             url.includes('cloudinary') ||
+             url.includes('firebasestorage');
+    } catch {
+      // Not a valid URL, could be a base64 or relative path
+      return url.startsWith('data:image/') || 
+             url.startsWith('/') ||
+             url.startsWith('./');
+    }
+  };
 
-  const handleSearch = (e) => {
+  // Get fallback image based on vendor name
+  const getFallbackImage = (vendorName) => {
+    const initials = vendorName
+      ?.split(' ')
+      .map(word => word[0])
+      .join('')
+      .toUpperCase()
+      .slice(0, 2) || 'V';
+    
+    return `https://ui-avatars.com/api/?name=${initials}&background=random&color=fff&size=200`;
+  };
+
+  // Handle form input changes
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    if (editingVendor) {
+      setEditingVendor(prev => ({
+        ...prev,
+        [name]: value
+      }));
+    } else {
+      setNewVendor(prev => ({
+        ...prev,
+        [name]: value
+      }));
+    }
+  };
+
+  // Add new vendor
+  const handleAddVendor = async (e) => {
     e.preventDefault();
+    
+    if (!newVendor.name.trim()) {
+      toast.error('Vendor name is required');
+      return;
+    }
+    
+    try {
+      setIsSubmitting(true);
+      
+      // Prepare vendor data with defaults
+      const vendorData = {
+        name: newVendor.name.trim(),
+        email: newVendor.email.trim() || '',
+        phone: newVendor.phone.trim() || '',
+        address: newVendor.address.trim() || '',
+        imageUrl: newVendor.imageUrl.trim() || '',
+        category: newVendor.category.trim() || 'General',
+        description: newVendor.description.trim() || '',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      
+      // Validate image URL
+      if (vendorData.imageUrl && !isValidImageUrl(vendorData.imageUrl)) {
+        toast.warn('Invalid image URL. Using default avatar.');
+        vendorData.imageUrl = '';
+      }
+      
+      // Add to Firestore
+      const docRef = await addDoc(collection(db, 'vendors'), vendorData);
+      
+      // Update local state
+      const addedVendor = {
+        id: docRef.id,
+        ...vendorData
+      };
+      
+      setVendors(prev => [addedVendor, ...prev]);
+      
+      // Reset form
+      setNewVendor({
+        name: '',
+        email: '',
+        phone: '',
+        address: '',
+        imageUrl: '',
+        category: '',
+        description: '',
+        createdAt: new Date().toISOString()
+      });
+      setShowAddForm(false);
+      
+      toast.success('Vendor added successfully!');
+    } catch (err) {
+      console.error('Error adding vendor:', err);
+      setError(`Failed to add vendor: ${err.message}`);
+      toast.error('Failed to add vendor');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Update vendor
+  const handleUpdateVendor = async (e) => {
+    e.preventDefault();
+    
+    if (!editingVendor?.name?.trim()) {
+      toast.error('Vendor name is required');
+      return;
+    }
+    
+    try {
+      setIsSubmitting(true);
+      
+      // Prepare update data
+      const updateData = {
+        name: editingVendor.name.trim(),
+        email: editingVendor.email?.trim() || '',
+        phone: editingVendor.phone?.trim() || '',
+        address: editingVendor.address?.trim() || '',
+        imageUrl: editingVendor.imageUrl?.trim() || '',
+        category: editingVendor.category?.trim() || 'General',
+        description: editingVendor.description?.trim() || '',
+        updatedAt: new Date().toISOString(),
+      };
+      
+      // Validate image URL
+      if (updateData.imageUrl && !isValidImageUrl(updateData.imageUrl)) {
+        toast.warn('Invalid image URL. Using default avatar.');
+        updateData.imageUrl = '';
+      }
+      
+      // Update in Firestore
+      const vendorDoc = doc(db, 'vendors', editingVendor.id);
+      await updateDoc(vendorDoc, updateData);
+      
+      // Update local state
+      setVendors(prev => prev.map(vendor => 
+        vendor.id === editingVendor.id 
+          ? { ...vendor, ...updateData }
+          : vendor
+      ));
+      
+      // Reset editing state
+      setEditingVendor(null);
+      
+      toast.success('Vendor updated successfully!');
+    } catch (err) {
+      console.error('Error updating vendor:', err);
+      setError(`Failed to update vendor: ${err.message}`);
+      toast.error('Failed to update vendor');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Delete vendor
+  const handleDeleteVendor = async (vendorId) => {
+    if (!window.confirm('Are you sure you want to delete this vendor?')) {
+      return;
+    }
+    
+    try {
+      await deleteDoc(doc(db, 'vendors', vendorId));
+      
+      // Update local state
+      setVendors(prev => prev.filter(vendor => vendor.id !== vendorId));
+      
+      toast.success('Vendor deleted successfully!');
+    } catch (err) {
+      console.error('Error deleting vendor:', err);
+      setError(`Failed to delete vendor: ${err.message}`);
+      toast.error('Failed to delete vendor');
+    }
+  };
+
+  // Format date
+  const formatDate = (dateString) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    });
+  };
+
+  // Reload page
+  const handleReload = () => {
+    window.location.reload();
+  };
+
+  // Load vendors on component mount
+  useEffect(() => {
     fetchVendors();
-  };
+  }, []);
 
-  const handleCategoryChange = (newCategory) => {
-    setCategory(newCategory);
-    // fetchVendors will be triggered by useEffect
-  };
-
-  const handleSearchChange = (value) => {
-    setSearch(value);
-  };
-
-  const handleSortChange = (value) => {
-    setSort(value);
-  };
-
-  const clearFilters = () => {
-    setSearch('');
-    setCategory('');
-    setSort('');
-    // URL will update via useEffect, which triggers fetchVendors
-  };
-
-  const removeCategoryFilter = () => {
-    setCategory('');
-  };
-
-  const removeSearchFilter = () => {
-    setSearch('');
-  };
-
-  const removeSortFilter = () => {
-    setSort('');
-  };
-
-  // Active filter count
-  const activeFilterCount = [category, search.trim(), sort].filter(Boolean).length;
+  // Render loading state
+  if (loading) {
+    return (
+      <div className="vendors-loading">
+        <div className="loading-spinner"></div>
+        <p>Loading vendors...</p>
+      </div>
+    );
+  }
 
   return (
-    <div>
-      <div className="flex justify-between items-center mb-8">
-        <h1 className="text-3xl font-bold">Browse Vendors</h1>
-        <div className="text-gray-600">
-          {loading ? 'Loading...' : `${vendors.length} vendor${vendors.length !== 1 ? 's' : ''} found`}
-        </div>
+    <div className="vendors-container">
+      <div className="vendors-header">
+        <h1>Vendors</h1>
+        <button 
+          onClick={() => setShowAddForm(true)}
+          className="btn-add-vendor"
+          disabled={isSubmitting}
+        >
+          + Add New Vendor
+        </button>
       </div>
 
-      {/* Search and Filters */}
-      <div className="bg-white rounded-lg shadow-sm p-6 mb-8">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-          {/* Search */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Search Vendors
-            </label>
-            <form onSubmit={handleSearch} className="relative">
-              <input
-                type="text"
-                placeholder="Search by name or description..."
-                className="w-full px-4 py-2 pl-10 pr-8 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                value={search}
-                onChange={(e) => handleSearchChange(e.target.value)}
-                onKeyPress={(e) => e.key === 'Enter' && handleSearch(e)}
-              />
-              <button 
-                type="submit" 
-                className="absolute left-3 top-1/2 transform -translate-y-1/2"
-              >
-                <FaSearch className="text-gray-400 hover:text-gray-600" />
-              </button>
-              {search && (
-                <button
-                  type="button"
-                  onClick={removeSearchFilter}
-                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                >
-                  <FaTimes />
+      {/* Error Display */}
+      {error && (
+        <div className="error-banner">
+          <div className="error-content">
+            <div className="error-icon">⚠️</div>
+            <div className="error-details">
+              <h3>Something went wrong</h3>
+              <p>{error}</p>
+              <div className="error-actions">
+                <button onClick={fetchVendors} className="btn-retry">
+                  Try Again
                 </button>
-              )}
-            </form>
-          </div>
-
-          {/* Category Filter */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Category
-            </label>
-            <div className="relative">
-              <select
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                value={category}
-                onChange={(e) => handleCategoryChange(e.target.value)}
-                style={{
-                  backgroundImage: `url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e")`,
-                  backgroundPosition: 'right 0.75rem center',
-                  backgroundRepeat: 'no-repeat',
-                  backgroundSize: '1.5em 1.5em',
-                  paddingRight: '2.5rem',
-                  appearance: 'none',
-                  WebkitAppearance: 'none',
-                  MozAppearance: 'none'
-                }}
-              >
-                <option value="">All Categories</option>
-                {categories.map((cat) => (
-                  <option key={cat} value={cat}>
-                    {cat}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {/* Sort */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Sort By
-            </label>
-            <div className="relative">
-              <select
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                value={sort}
-                onChange={(e) => handleSortChange(e.target.value)}
-                style={{
-                  backgroundImage: `url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e")`,
-                  backgroundPosition: 'right 0.75rem center',
-                  backgroundRepeat: 'no-repeat',
-                  backgroundSize: '1.5em 1.5em',
-                  paddingRight: '2.5rem',
-                  appearance: 'none',
-                  WebkitAppearance: 'none',
-                  MozAppearance: 'none'
-                }}
-              >
-                <option value="">Default (Newest)</option>
-                <option value="rating">Highest Rated</option>
-                <option value="name">Name (A-Z)</option>
-              </select>
+                <button onClick={handleReload} className="btn-reload">
+                  Reload Page
+                </button>
+              </div>
             </div>
           </div>
         </div>
-        
-        {/* Active Filters */}
-        {activeFilterCount > 0 && (
-          <div className="mb-4 p-3 bg-blue-50 rounded-lg">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center">
-                <FaFilter className="text-blue-600 mr-2" />
-                <span className="text-sm text-blue-800">
-                  {activeFilterCount} active filter{activeFilterCount > 1 ? 's' : ''}
-                </span>
-              </div>
-              <button
-                onClick={clearFilters}
-                className="text-sm text-blue-600 hover:text-blue-800"
+      )}
+
+      {/* Add/Edit Form Modal */}
+      {(showAddForm || editingVendor) && (
+        <div className="modal-overlay">
+          <div className="modal-content">
+            <div className="modal-header">
+              <h2>{editingVendor ? 'Edit Vendor' : 'Add New Vendor'}</h2>
+              <button 
+                onClick={() => {
+                  setShowAddForm(false);
+                  setEditingVendor(null);
+                }}
+                className="btn-close"
+                disabled={isSubmitting}
               >
-                Clear All
+                &times;
               </button>
             </div>
             
-            <div className="flex flex-wrap gap-2 mt-2">
-              {category && (
-                <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                  Category: {category}
-                  <button 
-                    onClick={removeCategoryFilter}
-                    className="ml-1 text-blue-600 hover:text-blue-800"
-                  >
-                    <FaTimes className="w-3 h-3" />
-                  </button>
-                </span>
-              )}
-              {search && (
-                <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                  Search: "{search}"
-                  <button 
-                    onClick={removeSearchFilter}
-                    className="ml-1 text-green-600 hover:text-green-800"
-                  >
-                    <FaTimes className="w-3 h-3" />
-                  </button>
-                </span>
-              )}
-              {sort && (
-                <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
-                  Sort: {sort === 'rating' ? 'Highest Rated' : 'Name (A-Z)'}
-                  <button 
-                    onClick={removeSortFilter}
-                    className="ml-1 text-purple-600 hover:text-purple-800"
-                  >
-                    <FaTimes className="w-3 h-3" />
-                  </button>
-                </span>
-              )}
-            </div>
-          </div>
-        )}
-        
-        <div className="flex justify-between items-center">
-          <div className="text-sm text-gray-600">
-            Showing {vendors.length} of {vendors.length} vendors
-          </div>
-          <div className="flex space-x-2">
-            <button
-              onClick={() => fetchVendors()}
-              className="text-sm bg-blue-100 text-blue-600 px-4 py-2 rounded-lg hover:bg-blue-200"
+            <form 
+              onSubmit={editingVendor ? handleUpdateVendor : handleAddVendor}
+              className="vendor-form"
             >
-              Refresh
-            </button>
-            {activeFilterCount > 0 && (
-              <button
-                onClick={clearFilters}
-                className="text-sm bg-gray-100 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-200"
-              >
-                Clear Filters
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
+              <div className="form-group">
+                <label htmlFor="name">Vendor Name *</label>
+                <input
+                  type="text"
+                  id="name"
+                  name="name"
+                  value={editingVendor ? editingVendor.name : newVendor.name}
+                  onChange={handleInputChange}
+                  placeholder="Enter vendor name"
+                  required
+                  disabled={isSubmitting}
+                />
+              </div>
 
-      {/* Category Quick Links */}
-      <div className="mb-8">
-        <h3 className="text-lg font-semibold mb-4">Browse by Category</h3>
-        <div className="flex flex-wrap gap-3">
-          <button
-            onClick={() => handleCategoryChange('')}
-            className={`px-4 py-2 rounded-lg border transition-colors ${
-              !category 
-                ? 'bg-blue-600 text-white border-blue-600' 
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200 border-gray-300'
-            }`}
-          >
-            All Categories
-          </button>
-          {categories.map((cat) => (
-            <button
-              key={cat}
-              onClick={() => handleCategoryChange(cat)}
-              className={`px-4 py-2 rounded-lg border transition-colors ${
-                category === cat 
-                  ? 'bg-blue-600 text-white border-blue-600' 
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200 border-gray-300'
-              }`}
-            >
-              {cat}
-            </button>
-          ))}
-        </div>
-      </div>
+              <div className="form-group">
+                <label htmlFor="imageUrl">Image URL</label>
+                <input
+                  type="url"
+                  id="imageUrl"
+                  name="imageUrl"
+                  value={editingVendor ? editingVendor.imageUrl : newVendor.imageUrl}
+                  onChange={handleInputChange}
+                  placeholder="https://example.com/image.jpg"
+                  disabled={isSubmitting}
+                />
+                <small className="form-hint">
+                  Leave empty for default avatar. Supports JPG, PNG, GIF, WebP, SVG, or base64.
+                </small>
+              </div>
 
-      {/* Loading State */}
-      {loading ? (
-        <div className="flex justify-center items-center h-64">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-          <span className="ml-3 text-gray-600">Loading vendors...</span>
+              <div className="form-row">
+                <div className="form-group">
+                  <label htmlFor="email">Email</label>
+                  <input
+                    type="email"
+                    id="email"
+                    name="email"
+                    value={editingVendor ? editingVendor.email : newVendor.email}
+                    onChange={handleInputChange}
+                    placeholder="vendor@example.com"
+                    disabled={isSubmitting}
+                  />
+                </div>
+                
+                <div className="form-group">
+                  <label htmlFor="phone">Phone</label>
+                  <input
+                    type="tel"
+                    id="phone"
+                    name="phone"
+                    value={editingVendor ? editingVendor.phone : newVendor.phone}
+                    onChange={handleInputChange}
+                    placeholder="(123) 456-7890"
+                    disabled={isSubmitting}
+                  />
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="category">Category</label>
+                <select
+                  id="category"
+                  name="category"
+                  value={editingVendor ? editingVendor.category : newVendor.category}
+                  onChange={handleInputChange}
+                  disabled={isSubmitting}
+                >
+                  <option value="">Select Category</option>
+                  <option value="Supplier">Supplier</option>
+                  <option value="Contractor">Contractor</option>
+                  <option value="Service Provider">Service Provider</option>
+                  <option value="Technology">Technology</option>
+                  <option value="Consultant">Consultant</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="description">Description</label>
+                <textarea
+                  id="description"
+                  name="description"
+                  value={editingVendor ? editingVendor.description : newVendor.description}
+                  onChange={handleInputChange}
+                  placeholder="Additional details about the vendor..."
+                  rows="3"
+                  disabled={isSubmitting}
+                />
+              </div>
+
+              <div className="form-actions">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAddForm(false);
+                    setEditingVendor(null);
+                  }}
+                  className="btn-cancel"
+                  disabled={isSubmitting}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn-submit"
+                  disabled={isSubmitting}
+                >
+                  {isSubmitting ? (
+                    <span className="submitting-text">
+                      <span className="spinner-small"></span>
+                      {editingVendor ? 'Updating...' : 'Adding...'}
+                    </span>
+                  ) : (
+                    editingVendor ? 'Update Vendor' : 'Add Vendor'
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
-      ) : vendors.length === 0 ? (
-        <div className="text-center py-12">
-          <FaSearch className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-          <h3 className="text-xl font-semibold text-gray-900 mb-2">No vendors found</h3>
-          <p className="text-gray-600 mb-4">
-            {category ? `No vendors found in "${category}" category` : 'Try adjusting your search or filters'}
-          </p>
-          {category && (
-            <button
-              onClick={removeCategoryFilter}
-              className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 mr-2"
-            >
-              Clear Category Filter
-            </button>
-          )}
-          <button
-            onClick={clearFilters}
-            className="bg-gray-200 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-300"
+      )}
+
+      {/* Vendors Grid */}
+      {vendors.length === 0 ? (
+        <div className="empty-state">
+          <div className="empty-icon">📋</div>
+          <h3>No vendors found</h3>
+          <p>Add your first vendor to get started!</p>
+          <button 
+            onClick={() => setShowAddForm(true)}
+            className="btn-primary"
           >
-            Show All Vendors
+            Add Vendor
           </button>
         </div>
       ) : (
-        <>
-          {/* Category Header */}
-          {category && (
-            <div className="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-100">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="text-xl font-semibold text-blue-900">
-                    {category} Vendors
-                  </h2>
-                  <p className="text-blue-700">
-                    Showing {vendors.length} vendor{vendors.length !== 1 ? 's' : ''} in this category
+        <div className="vendors-grid">
+          {vendors.map(vendor => (
+            <div key={vendor.id} className="vendor-card">
+              <div className="vendor-image-wrapper">
+                <ImageWithFallback
+                  src={vendor.imageUrl}
+                  alt={vendor.name}
+                  fallbackSrc={getFallbackImage(vendor.name)}
+                  className="vendor-image"
+                />
+              </div>
+              
+              <div className="vendor-info">
+                <h3 className="vendor-name">{vendor.name}</h3>
+                
+                {vendor.category && (
+                  <span className="vendor-category">{vendor.category}</span>
+                )}
+                
+                {vendor.email && (
+                  <p className="vendor-email">
+                    <span className="info-icon">📧</span>
+                    {vendor.email}
                   </p>
+                )}
+                
+                {vendor.phone && (
+                  <p className="vendor-phone">
+                    <span className="info-icon">📱</span>
+                    {vendor.phone}
+                  </p>
+                )}
+                
+                {vendor.description && (
+                  <p className="vendor-description">{vendor.description}</p>
+                )}
+                
+                <div className="vendor-meta">
+                  <span className="vendor-date">
+                    Added: {formatDate(vendor.createdAt)}
+                  </span>
                 </div>
+              </div>
+              
+              <div className="vendor-actions">
                 <button
-                  onClick={removeCategoryFilter}
-                  className="text-blue-600 hover:text-blue-800 flex items-center"
+                  onClick={() => setEditingVendor(vendor)}
+                  className="btn-edit"
+                  aria-label={`Edit ${vendor.name}`}
                 >
-                  <FaTimes className="mr-1" /> Clear Filter
+                  Edit
+                </button>
+                <button
+                  onClick={() => handleDeleteVendor(vendor.id)}
+                  className="btn-delete"
+                  aria-label={`Delete ${vendor.name}`}
+                >
+                  Delete
                 </button>
               </div>
             </div>
-          )}
-          
-          {/* Sort Info */}
-          {sort && (
-            <div className="mb-6 p-4 bg-gray-50 rounded-lg">
-              <p className="text-gray-600">
-                Sorted by: <span className="font-semibold">
-                  {sort === 'rating' ? 'Highest Rating' : 
-                   sort === 'name' ? 'Name (A-Z)' : 
-                   'Newest First'}
-                </span>
-              </p>
-            </div>
-          )}
-          
-          {/* Vendors Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {vendors.map((vendor) => (
-              <div key={vendor.id} className="bg-white rounded-lg shadow-sm p-6 hover:shadow-lg transition-shadow border border-gray-100">
-                <div className="flex items-start mb-4">
-                  {vendor.logo_url ? (
-                    <img
-                      src={`http://localhost:5000${vendor.logo_url}`}
-                      alt={vendor.vendor_name}
-                      className="w-16 h-16 rounded-lg object-cover mr-4"
-                      onError={(e) => {
-                        e.target.onerror = null;
-                        e.target.style.display = 'none';
-                        const parent = e.target.parentElement;
-                        parent.innerHTML = `
-                          <div class="w-16 h-16 bg-gray-200 rounded-lg flex items-center justify-center mr-4">
-                            <i class="fas fa-building text-gray-500 text-xl"></i>
-                          </div>
-                        `;
-                      }}
-                    />
-                  ) : (
-                    <div className="w-16 h-16 bg-gray-200 rounded-lg flex items-center justify-center mr-4">
-                      <FaBuilding className="w-8 h-8 text-gray-500" />
-                    </div>
-                  )}
-                  <div>
-                    <h3 className="font-bold text-lg">{vendor.vendor_name}</h3>
-                    <span className="inline-block px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded-full mt-1">
-                      {vendor.business_category}
-                    </span>
-                  </div>
-                </div>
-
-                <p className="text-gray-600 text-sm mb-4 line-clamp-2">
-                  {vendor.description || 'No description provided'}
-                </p>
-
-                <div className="flex items-center justify-between mb-4">
-                  <DisplayRating value={vendor.average_rating || 0} />
-                  <span className="text-gray-500 text-sm">
-                    {vendor.review_count || 0} review{vendor.review_count !== 1 ? 's' : ''}
-                  </span>
-                </div>
-
-                <div className="text-sm text-gray-500 mb-4">
-                  <span className="flex items-center">
-                    📍 {vendor.city || 'Location not specified'}
-                  </span>
-                </div>
-
-                <div className="flex space-x-2">
-                  <Link
-                    to={`/vendor/${vendor.id}`}
-                    className="flex-1 text-center bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700"
-                  >
-                    View Profile
-                  </Link>
-                  <Link
-                    to={`/vendor/${vendor.id}/feedback`}
-                    className="flex-1 text-center bg-gray-200 text-gray-700 px-4 py-2 rounded-lg font-medium hover:bg-gray-300"
-                  >
-                    Leave Review
-                  </Link>
-                </div>
-              </div>
-            ))}
-          </div>
-        </>
+          ))}
+        </div>
       )}
     </div>
   );
 };
 
-export default VendorListingPage;
+// Separate ImageWithFallback component to handle image errors
+const ImageWithFallback = ({ src, alt, fallbackSrc, className, ...props }) => {
+  const [imgSrc, setImgSrc] = useState(src || fallbackSrc);
+  const [hasError, setHasError] = useState(false);
+
+  useEffect(() => {
+    setImgSrc(src || fallbackSrc);
+    setHasError(false);
+  }, [src, fallbackSrc]);
+
+  const handleError = () => {
+    if (!hasError && imgSrc !== fallbackSrc) {
+      setImgSrc(fallbackSrc);
+      setHasError(true);
+    }
+  };
+
+  return (
+    <img
+      src={imgSrc}
+      alt={alt}
+      className={`${className} ${hasError ? 'fallback-image' : ''}`}
+      onError={handleError}
+      loading="lazy"
+      {...props}
+    />
+  );
+};
+
+export default VendorsList;
